@@ -7,15 +7,13 @@ import (
 	"gorm.io/gorm"
 )
 
+var DB *gorm.DB
+
 type User struct {
 	gorm.Model
-	Id        string `json:"id" gorm:"primaryKey;not null"`
-	Username  string `json:"username" gorm:"uniqueIndex;not null"`
-	Password  string `json:"-" gorm:"not null"`
-	Role      string `json:"role" gorm:"not null" default:"User"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
-	DeletedAt string `json:"deletedAt"`
+	Username string `json:"username" gorm:"uniqueIndex;not null"`
+	Password string `json:"-" gorm:"not null"`
+	Role     string `json:"role" gorm:"not null;default:User"`
 }
 
 func Init() {
@@ -25,6 +23,8 @@ func Init() {
 		log.Panicf("failed to connect database %v", err)
 	}
 
+	DB = db
+
 	// Migrate the schema
 	err = db.AutoMigrate(&User{})
 	if err != nil {
@@ -33,7 +33,6 @@ func Init() {
 	}
 
 	fmt.Println("Database connected")
-	// db.Create(&User{Username: "Default User", Password: "123"})
 
 	// Read
 	//var product User
