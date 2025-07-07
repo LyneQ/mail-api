@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"github.com/labstack/gommon/log"
+	"github.com/lyneq/mailapi/config"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -18,7 +19,13 @@ type User struct {
 }
 
 func Init() {
-	db, err := gorm.Open(sqlite.Open("./db/dev.db"), &gorm.Config{})
+	// Get database configuration from config.ini
+	dbPath := config.GetDatabasePath()
+	if dbPath == "" {
+		dbPath = "./db/default.db" // Default path if not specified in config
+	}
+
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
 		_ = fmt.Errorf("failed to connect database: %v\n", err)
 		log.Panicf("failed to connect database %v", err)

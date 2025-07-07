@@ -34,6 +34,12 @@ func GetAuthController() []*Controller {
 			Active:       true,
 			Handler:      me,
 			RequiredAuth: true,
+		}, {
+			Route:        "/signout",
+			Method:       http.MethodGet,
+			Active:       true,
+			Handler:      signOutView,
+			RequiredAuth: true,
 		},
 	}
 }

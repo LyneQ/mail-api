@@ -4,17 +4,51 @@ import (
 	"errors"
 	"fmt"
 	"github.com/labstack/echo/v4"
+	"github.com/lyneq/mailapi/config"
 	"github.com/lyneq/mailapi/db"
 	"github.com/lyneq/mailapi/internal/session"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	_ "gorm.io/gorm"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 )
 
+// isAllowedDomain checks if the given URL's domain is in the list of allowed domains
+func isAllowedDomain(urlStr string) bool {
+	fmt.Printf("Checking if domain is allowed for URL: %s\n", urlStr)
+	if urlStr == "" {
+		fmt.Println("URL is empty, not allowed")
+		return false
+	}
+
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		fmt.Printf("Error parsing URL: %v\n", err)
+		return false
+	}
+
+	host := parsedURL.Hostname()
+	fmt.Printf("Parsed hostname: %s\n", host)
+
+	allowedDomains := config.GetAllowedDomains()
+	for _, domain := range allowedDomains {
+		fmt.Printf("Checking against allowed domain: %s\n", domain)
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			fmt.Printf("Domain %s is allowed\n", host)
+			return true
+		}
+	}
+	fmt.Printf("Domain %s is not in the allowed list\n", host)
+	return false
+}
+
 type SignUpRequest struct {
-	Username string `json:"username" validate:"required,min=3,max=64"`
-	Password string `json:"password" validate:"required,min=3,max=64"`
+	Username    string `json:"username" validate:"required,min=3,max=64"`
+	Password    string `json:"password" validate:"required,min=3,max=64"`
+	CallbackURL string `json:"callbackURL"`
 }
 
 // signUpView handles user sign-up by validating request data, hashing passwords, and creating new user records in the database.
@@ -26,6 +60,14 @@ func signUpView(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"message": "An error occurred while processing your request.",
 		})
+	}
+
+	// Check for callbackURL in query parameters (this takes precedence over JSON body)
+	queryCallbackURL := c.QueryParam("callbackURL")
+	fmt.Printf("Query callbackURL (signup): %v\n", queryCallbackURL)
+	if queryCallbackURL != "" {
+		req.CallbackURL = queryCallbackURL
+		fmt.Printf("Using callbackURL from query parameter (signup): %v\n", req.CallbackURL)
 	}
 
 	// Validate request data
@@ -71,12 +113,23 @@ func signUpView(c echo.Context) error {
 		})
 	}
 
+	// Check if there's a callback URL and if it's allowed
+	if req.CallbackURL != "" {
+		if isAllowedDomain(req.CallbackURL) {
+			return c.Redirect(http.StatusSeeOther, req.CallbackURL)
+		} else {
+			// If the domain is not allowed, log it and continue without redirection
+			_ = fmt.Errorf("redirection to unauthorized domain attempted: %s", req.CallbackURL)
+		}
+	}
+
 	return c.JSON(http.StatusCreated, user)
 }
 
 type SignInRequest struct {
-	Username string `json:"username" validate:"required,min=3,max=64"`
-	Password string `json:"password" validate:"required,min=3,max=64"`
+	Username    string `json:"username" validate:"required,min=3,max=64"`
+	Password    string `json:"password" validate:"required,min=3,max=64"`
+	CallbackURL string `json:"callbackURL"`
 }
 
 // signInView handles user sign-in by validating credentials and creating a session.
@@ -86,6 +139,14 @@ func signInView(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"message": "An error occurred while processing your request.",
 		})
+	}
+
+	// Check for callbackURL in query parameters (this takes precedence over JSON body)
+	queryCallbackURL := c.QueryParam("callbackURL")
+	fmt.Printf("Query callbackURL: %v\n", queryCallbackURL)
+	if queryCallbackURL != "" {
+		req.CallbackURL = queryCallbackURL
+		fmt.Printf("Using callbackURL from query parameter: %v\n", req.CallbackURL)
 	}
 
 	if err := c.Validate(&req); err != nil {
@@ -119,6 +180,20 @@ func signInView(c echo.Context) error {
 
 	session.SetSessionCookie(c, user.ID)
 
+	fmt.Printf("Final callbackURL before redirection check: %v\n", req.CallbackURL)
+
+	// Check if there's a callback URL and if it's allowed
+	if req.CallbackURL != "" {
+		fmt.Printf("CallbackURL is not empty, checking if domain is allowed\n")
+		if isAllowedDomain(req.CallbackURL) {
+			fmt.Printf("Domain is allowed, redirecting to: %v\n", req.CallbackURL)
+			return c.Redirect(http.StatusSeeOther, req.CallbackURL)
+		} else {
+			// If the domain is not allowed, log it and continue without redirection
+			_ = fmt.Errorf("redirection to unauthorized domain attempted: %s", req.CallbackURL)
+		}
+	}
+
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"id":       user.ID,
 		"username": user.Username,
@@ -145,5 +220,46 @@ func me(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "authenticated!",
 		"user":    user,
+	})
+}
+
+// signOutView handles user sign-out by invalidating the session and deleting the session cookie.
+func signOutView(c echo.Context) error {
+	// Get callbackURL from query parameter
+	callbackURL := c.QueryParam("callbackURL")
+	fmt.Printf("Query callbackURL (signout): %v\n", callbackURL)
+
+	err := session.Manager.Destroy(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"message": "An error occurred while signing out.",
+			"error":   err.Error(),
+		})
+	}
+
+	cookie := new(http.Cookie)
+	cookie.Name = session.Manager.Cookie.Name
+	cookie.Value = ""
+	cookie.Path = session.Manager.Cookie.Path
+	cookie.Expires = time.Now().Add(-1 * time.Hour) // Set expiry in the past
+	cookie.MaxAge = -1                              // Delete the cookie
+	cookie.Secure = session.Manager.Cookie.Secure
+	cookie.HttpOnly = session.Manager.Cookie.HttpOnly
+	cookie.SameSite = session.Manager.Cookie.SameSite
+
+	c.SetCookie(cookie)
+
+	// Check if there's a callback URL and if it's allowed
+	if callbackURL != "" {
+		if isAllowedDomain(callbackURL) {
+			return c.Redirect(http.StatusSeeOther, callbackURL)
+		} else {
+			// If the domain is not allowed, log it and continue without redirection
+			_ = fmt.Errorf("redirection to unauthorized domain attempted: %s", callbackURL)
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message": "Successfully signed out.",
 	})
 }
