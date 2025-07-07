@@ -11,9 +11,10 @@ var DB *gorm.DB
 
 type User struct {
 	gorm.Model
-	Username string `json:"username" gorm:"uniqueIndex;not null"`
-	Password string `json:"-" gorm:"not null"`
-	Role     string `json:"role" gorm:"not null;default:User"`
+	Username   string `json:"username" gorm:"uniqueIndex;not null"`
+	Password   string `json:"-" gorm:"not null"`
+	Role       string `json:"role" gorm:"not null;default:User"`
+	IsVerified bool   `json:"is_verified" gorm:"default:false"`
 }
 
 func Init() {

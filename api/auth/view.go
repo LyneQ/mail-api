@@ -142,23 +142,8 @@ func me(c echo.Context) error {
 		cookieNames[i] = fmt.Sprintf("%s=%s", cookie.Name, cookie.Value)
 	}
 
-	_, err = c.Cookie("session_id")
-	sessionCookieValue := "not found"
-	if err == nil {
-		sessionCookieValue = "present (value hidden for security)"
-	}
-
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"message": "You are authenticated!",
-		"user": map[string]interface{}{
-			"id":       user.ID,
-			"username": user.Username,
-			"role":     user.Role,
-		},
-		"cookies": map[string]interface{}{
-			"all_cookies":    cookieNames,
-			"session_cookie": sessionCookieValue,
-			"cookie_count":   len(cookies),
-		},
+		"message": "authenticated!",
+		"user":    user,
 	})
 }
