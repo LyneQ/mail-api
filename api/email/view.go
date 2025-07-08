@@ -2,10 +2,11 @@ package email
 
 import (
 	"fmt"
-	"github.com/labstack/echo/v4"
-	"github.com/lyneq/mailapi/internal/smtpClient"
 	"net/http"
 	"strconv"
+
+	"github.com/labstack/echo/v4"
+	"github.com/lyneq/mailapi/internal/smtpClient"
 )
 
 // EmailResponse represents the response structure for email data

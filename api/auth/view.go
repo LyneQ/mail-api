@@ -3,6 +3,11 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
 	"github.com/labstack/echo/v4"
 	"github.com/lyneq/mailapi/config"
 	"github.com/lyneq/mailapi/db"
@@ -10,10 +15,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	_ "gorm.io/gorm"
-	"net/http"
-	"net/url"
-	"strings"
-	"time"
 )
 
 // isAllowedDomain checks if the given URL's domain is in the list of allowed domains
@@ -137,7 +138,6 @@ func signInView(c echo.Context) error {
 
 	// Check for callbackURL in query parameters (this takes precedence over JSON body)
 	queryCallbackURL := c.QueryParam("callbackURL")
-	fmt.Printf("Query callbackURL: %v\n", queryCallbackURL)
 	if queryCallbackURL != "" {
 		req.CallbackURL = queryCallbackURL
 		fmt.Printf("Using callbackURL from query parameter: %v\n", req.CallbackURL)
@@ -173,8 +173,6 @@ func signInView(c echo.Context) error {
 	}
 
 	session.SetSessionCookie(c, user.ID)
-
-	fmt.Printf("Final callbackURL before redirection check: %v\n", req.CallbackURL)
 
 	// Check if there's a callback URL and if it's allowed
 	if req.CallbackURL != "" {
