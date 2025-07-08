@@ -26,7 +26,7 @@ func Init(db *gorm.DB, secure bool) {
 	Manager.Cookie.Path = "/"
 	Manager.Cookie.SameSite = http.SameSiteLaxMode
 
-	fmt.Println("Session manager initialized with memstore")
+	fmt.Println("[App] Session manager initialized with memstore")
 }
 
 // Middleware creates an Echo middleware function that wraps requests to manage session state using the session manager.
@@ -46,7 +46,7 @@ func Middleware() echo.MiddlewareFunc {
 				Manager.Cookie.Path = "/"
 				Manager.Cookie.SameSite = http.SameSiteLaxMode
 
-				fmt.Println("Session manager initialized with memstore (fallback)")
+				fmt.Println("[App] Session manager initialized with memstore (fallback)")
 			}
 
 			rw := c.Response().Writer

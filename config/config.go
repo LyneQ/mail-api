@@ -11,12 +11,17 @@ import (
 type Config struct {
 	AllowedDomains []string
 	Database       DatabaseConfig
+	Api            ApiConfig
 }
 
 // DatabaseConfig holds database configuration values
 type DatabaseConfig struct {
 	Driver string
 	Path   string
+}
+
+type ApiConfig struct {
+	port string
 }
 
 var (
@@ -78,6 +83,11 @@ func LoadConfig() error {
 			case "path":
 				AppConfig.Database.Path = value
 			}
+		} else if currentSection == "Api" {
+			switch key {
+			case "port":
+				AppConfig.Api.port = value
+			}
 		}
 	}
 
@@ -85,6 +95,7 @@ func LoadConfig() error {
 		return fmt.Errorf("error reading config file: %w", err)
 	}
 
+	fmt.Printf("[App] Configuration loaded from file %v\n", file.Name())
 	return nil
 }
 
@@ -101,4 +112,8 @@ func GetDatabaseDriver() string {
 // GetDatabasePath returns the database path
 func GetDatabasePath() string {
 	return AppConfig.Database.Path
+}
+
+func GetAPIPort() string {
+	return AppConfig.Api.port
 }

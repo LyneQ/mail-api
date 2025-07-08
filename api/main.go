@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"github.com/lyneq/mailapi/config"
 	"github.com/lyneq/mailapi/internal/middleware"
 	"github.com/lyneq/mailapi/internal/session"
 	"net/http"
@@ -20,33 +21,21 @@ func (cv *CustomValidator) Validate(i interface{}) error {
 	return cv.validator.Struct(i)
 }
 
-// InitForTesting initializes the Echo instance for testing purposes
-func InitForTesting(e *echo.Echo) {
-	e.Use(echomiddleware.CORSWithConfig(echomiddleware.CORSConfig{
-		AllowOrigins:     []string{"http://localhost:1323", "http://localhost", "http://127.0.0.1:1323", "http://127.0.0.1", "https://localhost:1323", "https://localhost", "https://127.0.0.1:1323", "https://127.0.0.1"},
-		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
-		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderSetCookie, echo.HeaderCookie, "X-Requested-With", "X-CSRF-Token"},
-		ExposeHeaders:    []string{echo.HeaderSetCookie, "Set-Cookie"},
-		AllowCredentials: true,
-		MaxAge:           86400,
-	}))
-
-	e.Use(session.Middleware())
-
-	e.GET("/", func(c echo.Context) error {
-		return c.String(http.StatusOK, "Hello, World!")
-	})
-
-	e.Validator = &CustomValidator{validator: validator.New()}
-
-	registerRoutes(e)
-}
-
 func Init() {
+
+	allowedDomains := config.GetAllowedDomains()
+	apiPort := config.GetAPIPort()
 	e := echo.New()
 
+	var allowedHosts []string
+
+	for _, domain := range allowedDomains {
+		allowedHosts = append(allowedHosts, "https://"+domain+":"+apiPort)
+		allowedHosts = append(allowedHosts, "http://"+domain+":"+apiPort)
+	}
+
 	e.Use(echomiddleware.CORSWithConfig(echomiddleware.CORSConfig{
-		AllowOrigins:     []string{"http://localhost:1323", "http://localhost", "http://127.0.0.1:1323", "http://127.0.0.1", "https://localhost:1323", "https://localhost", "https://127.0.0.1:1323", "https://127.0.0.1"},
+		AllowOrigins:     allowedHosts,
 		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
 		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderSetCookie, echo.HeaderCookie, "X-Requested-With", "X-CSRF-Token"},
 		ExposeHeaders:    []string{echo.HeaderSetCookie, "Set-Cookie"},
@@ -65,6 +54,7 @@ func Init() {
 	registerRoutes(e)
 
 	e.Logger.Fatal(e.Start(":1323"))
+
 }
 
 // registerRoutes registers all the routes for the API

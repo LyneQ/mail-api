@@ -40,7 +40,7 @@ func Init() {
 		return
 	}
 
-	fmt.Println("Database connected")
+	fmt.Printf("[App] Database initialized at %s\n", dbPath)
 
 	// Read
 	//var product User
