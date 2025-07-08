@@ -1,2 +1,4 @@
 *.db
 .idea
+
+config/config.ini
