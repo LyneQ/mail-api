@@ -16,26 +16,26 @@ type Controller struct {
 func GetAuthController() []*Controller {
 	return []*Controller{
 		{
-			Route:        "/signup",
+			Route:        "/api/signup",
 			Method:       http.MethodPost,
 			Active:       true,
 			Handler:      signUpView,
 			RequiredAuth: false,
 		},
 		{
-			Route:        "/signin",
+			Route:        "/api/signin",
 			Method:       http.MethodPost,
 			Active:       true,
 			Handler:      signInView,
 			RequiredAuth: false,
 		}, {
-			Route:        "/me",
+			Route:        "/api/me",
 			Method:       http.MethodGet,
 			Active:       true,
 			Handler:      me,
 			RequiredAuth: true,
 		}, {
-			Route:        "/signout",
+			Route:        "/api/signout",
 			Method:       http.MethodGet,
 			Active:       true,
 			Handler:      signOutView,

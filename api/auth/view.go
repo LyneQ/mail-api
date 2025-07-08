@@ -18,9 +18,7 @@ import (
 
 // isAllowedDomain checks if the given URL's domain is in the list of allowed domains
 func isAllowedDomain(urlStr string) bool {
-	fmt.Printf("Checking if domain is allowed for URL: %s\n", urlStr)
 	if urlStr == "" {
-		fmt.Println("URL is empty, not allowed")
 		return false
 	}
 
@@ -31,17 +29,13 @@ func isAllowedDomain(urlStr string) bool {
 	}
 
 	host := parsedURL.Hostname()
-	fmt.Printf("Parsed hostname: %s\n", host)
 
 	allowedDomains := config.GetAllowedDomains()
 	for _, domain := range allowedDomains {
-		fmt.Printf("Checking against allowed domain: %s\n", domain)
 		if host == domain || strings.HasSuffix(host, "."+domain) {
-			fmt.Printf("Domain %s is allowed\n", host)
 			return true
 		}
 	}
-	fmt.Printf("Domain %s is not in the allowed list\n", host)
 	return false
 }
 

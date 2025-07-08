@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v4"
 	echomiddleware "github.com/labstack/echo/v4/middleware"
 	"github.com/lyneq/mailapi/api/auth"
+	"github.com/lyneq/mailapi/api/email"
 )
 
 type CustomValidator struct {
@@ -61,6 +62,41 @@ func Init() {
 func registerRoutes(e *echo.Echo) {
 	var routes []*auth.Controller
 	routes = auth.GetAuthController()
+
+	// Register email routes
+	emailRoutes := email.GetEmailController()
+	for _, route := range emailRoutes {
+		if route.Active {
+			switch route.Method {
+			case http.MethodGet:
+				if route.RequiredAuth {
+					e.GET(route.Route, route.Handler, middleware.RequireAuth)
+				} else {
+					e.GET(route.Route, route.Handler)
+				}
+			case http.MethodPost:
+				if route.RequiredAuth {
+					e.POST(route.Route, route.Handler, middleware.RequireAuth)
+				} else {
+					e.POST(route.Route, route.Handler)
+				}
+			case http.MethodPut:
+				if route.RequiredAuth {
+					e.PUT(route.Route, route.Handler, middleware.RequireAuth)
+				} else {
+					e.PUT(route.Route, route.Handler)
+				}
+			case http.MethodDelete:
+				if route.RequiredAuth {
+					e.DELETE(route.Route, route.Handler, middleware.RequireAuth)
+				} else {
+					e.DELETE(route.Route, route.Handler)
+				}
+			default:
+				fmt.Printf("Méthode non supportée ou introuvable pour %v", route.Route)
+			}
+		}
+	}
 
 	for _, route := range routes {
 		if route.Active {

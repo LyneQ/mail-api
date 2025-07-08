@@ -2,10 +2,14 @@ package smtpclient
 
 import (
 	"fmt"
+	"io"
+	"io/ioutil" // Using ioutil for simplicity, though it's deprecated in favor of io and os packages in newer Go versions
+	"strconv"
 	"sync"
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
+	"github.com/emersion/go-message/mail"
 )
 
 // IMAPConfig holds the configuration for the IMAP client
@@ -132,4 +136,107 @@ func (c *IMAPClient) GetInbox(limit int) ([]Message, error) {
 	}
 
 	return result, nil
+}
+
+// GetEmailByID retrieves a specific email by its ID with full details
+func (c *IMAPClient) GetEmailByID(id string) (*Message, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.client == nil {
+		return nil, fmt.Errorf("not connected to IMAP server")
+	}
+
+	// Convert ID to sequence number
+	seqNum, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid email ID: %w", err)
+	}
+
+	// Select INBOX
+	_, err = c.client.Select("INBOX", false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to select inbox: %w", err)
+	}
+
+	// Create sequence set for this specific message
+	seqSet := new(imap.SeqSet)
+	seqSet.AddNum(uint32(seqNum))
+
+	// Get message envelope, flags, and body structure
+	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags, imap.FetchBodyStructure, "BODY[]"}
+	messages := make(chan *imap.Message, 1)
+	done := make(chan error, 1)
+
+	go func() {
+		done <- c.client.Fetch(seqSet, items, messages)
+	}()
+
+	var message *Message
+	for msg := range messages {
+		// Create basic message with envelope data
+		message = &Message{
+			ID:      fmt.Sprintf("%d", msg.SeqNum),
+			Subject: msg.Envelope.Subject,
+			Date:    msg.Envelope.Date,
+		}
+
+		// Set From
+		if len(msg.Envelope.From) > 0 {
+			message.From = msg.Envelope.From[0].Address()
+		}
+
+		// Set To
+		for _, addr := range msg.Envelope.To {
+			message.To = append(message.To, addr.Address())
+		}
+
+		// Get the body
+		for _, literal := range msg.Body {
+			// Parse the message
+			mr, err := mail.CreateReader(literal)
+			if err != nil {
+				continue
+			}
+
+			// Process each part
+			for {
+				p, err := mr.NextPart()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					continue
+				}
+
+				switch h := p.Header.(type) {
+				case *mail.InlineHeader:
+					// This is the message body
+					b, _ := ioutil.ReadAll(p.Body)
+					message.Body = string(b)
+				case *mail.AttachmentHeader:
+					// This is an attachment
+					filename, _ := h.Filename()
+					b, _ := ioutil.ReadAll(p.Body)
+					contentType, _, _ := h.ContentType()
+
+					message.Attachments = append(message.Attachments, Attachment{
+						Filename: filename,
+						Content:  b,
+						MimeType: contentType,
+					})
+				}
+			}
+		}
+	}
+
+	if err := <-done; err != nil {
+		return nil, fmt.Errorf("failed to fetch message: %w", err)
+	}
+
+	if message == nil {
+		return nil, fmt.Errorf("message with ID %s not found", id)
+	}
+
+	return message, nil
 }
