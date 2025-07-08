@@ -72,6 +72,37 @@ func (c *IMAPClient) Disconnect() error {
 	return nil
 }
 
+// GetFolders retourne la liste des boîtes aux lettres (mailboxes) disponibles sur le serveur IMAP.
+func (c *IMAPClient) GetFolders() ([]string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.client == nil {
+		return nil, fmt.Errorf("not connected to IMAP server")
+	}
+
+	// Canal pour récupérer les résultats
+	mailboxes := make(chan *imap.MailboxInfo, 50)
+	done := make(chan error, 1)
+
+	// Lance la requête IMAP pour lister les boîtes.
+	// Ex: "" pour le "reference", "*" pour le "mailbox pattern"
+	go func() {
+		done <- c.client.List("", "*", mailboxes)
+	}()
+
+	var folderNames []string
+	for m := range mailboxes {
+		folderNames = append(folderNames, m.Name)
+	}
+
+	if err := <-done; err != nil {
+		return nil, fmt.Errorf("failed to list mailboxes: %w", err)
+	}
+
+	return folderNames, nil
+}
+
 // GetInbox retrieves messages from the user's inbox
 func (c *IMAPClient) GetInbox(limit int) ([]Message, error) {
 	c.mu.Lock()
@@ -116,6 +147,73 @@ func (c *IMAPClient) GetInbox(limit int) ([]Message, error) {
 			ID:      fmt.Sprintf("%d", msg.SeqNum),
 			Subject: msg.Envelope.Subject,
 			Date:    msg.Envelope.Date,
+			Flags:   msg.Flags,
+		}
+
+		// Set From
+		if len(msg.Envelope.From) > 0 {
+			message.From = msg.Envelope.From[0].Address()
+		}
+
+		// Set To
+		for _, addr := range msg.Envelope.To {
+			message.To = append(message.To, addr.Address())
+		}
+
+		result = append(result, message)
+	}
+
+	if err := <-done; err != nil {
+		return nil, fmt.Errorf("failed to fetch messages: %w", err)
+	}
+
+	return result, nil
+}
+
+func (c *IMAPClient) GetFolderMessages(folder string, limit int) ([]Message, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.client == nil {
+		return nil, fmt.Errorf("not connected to IMAP server")
+	}
+
+	// Select INBOX
+	mbox, err := c.client.Select(folder, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to select inbox: %w", err)
+	}
+
+	// Get the last 'limit' messages
+	from := uint32(1)
+	to := mbox.Messages
+	if to > uint32(limit) && to > 0 {
+		from = to - uint32(limit) + 1
+	}
+
+	if from > to {
+		return []Message{}, nil
+	}
+
+	seqSet := new(imap.SeqSet)
+	seqSet.AddRange(from, to)
+
+	// Get message envelope and flags
+	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags}
+	messages := make(chan *imap.Message, 10)
+	done := make(chan error, 1)
+
+	go func() {
+		done <- c.client.Fetch(seqSet, items, messages)
+	}()
+
+	var result []Message
+	for msg := range messages {
+		message := Message{
+			ID:      fmt.Sprintf("%d", msg.SeqNum),
+			Subject: msg.Envelope.Subject,
+			Date:    msg.Envelope.Date,
+			Flags:   msg.Flags,
 		}
 
 		// Set From

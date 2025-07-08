@@ -17,6 +17,17 @@ type EmailResponse struct {
 	Subject string   `json:"subject"`
 	Date    string   `json:"date"`
 	Body    string   `json:"body,omitempty"`
+	Flags   []string `json:"flags"`
+}
+
+type FolderResponse struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+type Response struct {
+	Folders any             `json:"folders"`
+	Emails  []EmailResponse `json:"inbox"`
 }
 
 // SendEmailRequest represents the request structure for sending an email
@@ -52,6 +63,69 @@ func getInboxView(c echo.Context) error {
 
 	// Get inbox messages
 	messages, err := imapClient.GetInbox(limit)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("Failed to get inbox: %v", err),
+		})
+	}
+
+	// Convert to response format
+	var emails []EmailResponse
+	for _, msg := range messages {
+		emails = append(emails, EmailResponse{
+			ID:      msg.ID,
+			From:    msg.From,
+			To:      msg.To,
+			Subject: msg.Subject,
+			Date:    msg.Date.Format("2006-01-02 15:04:05"),
+			Flags:   msg.Flags,
+		})
+	}
+
+	folders, err := imapClient.GetFolders()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("Failed to get folders: %v", err),
+		})
+	}
+
+	// Add folders info if needed
+	// For now, we're just returning the basic email details including the body'
+
+	return c.JSON(http.StatusOK, Response{Folders: folders, Emails: emails})
+}
+
+func getFolderView(c echo.Context) error {
+	// Create IMAP client
+	imapClient := smtpclient.NewIMAPClientFromConfig()
+
+	// Connect to IMAP server
+	if err := imapClient.Connect(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("Failed to connect to IMAP server: %v", err),
+		})
+	}
+	defer imapClient.Disconnect()
+
+	// Get limit parameter, default to 20 if not provided
+	limitStr := c.QueryParam("limit")
+	limit := 20
+	if limitStr != "" {
+		parsedLimit, err := strconv.Atoi(limitStr)
+		if err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	// Get inbox messages
+	folderName := c.QueryParam("name")
+	if folderName == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Folder name is required",
+		})
+	}
+	fmt.Println(folderName)
+	messages, err := imapClient.GetFolderMessages(folderName, limit)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": fmt.Sprintf("Failed to get inbox: %v", err),

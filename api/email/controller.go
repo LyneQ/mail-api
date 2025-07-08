@@ -1,8 +1,9 @@
 package email
 
 import (
-	"github.com/labstack/echo/v4"
 	"net/http"
+
+	"github.com/labstack/echo/v4"
 )
 
 type Controller struct {
@@ -20,6 +21,13 @@ func GetEmailController() []*Controller {
 			Method:       http.MethodGet,
 			Active:       true,
 			Handler:      getInboxView,
+			RequiredAuth: true,
+		},
+		{
+			Route:        "/api/email/folder",
+			Method:       http.MethodGet,
+			Active:       true,
+			Handler:      getFolderView,
 			RequiredAuth: true,
 		},
 		{

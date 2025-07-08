@@ -2,7 +2,6 @@ package smtpclient
 
 import (
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -35,6 +34,7 @@ type Message struct {
 	Body        string
 	Date        time.Time
 	Attachments []Attachment
+	Flags       []string
 }
 
 // Attachment represents an email attachment
@@ -67,15 +67,6 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("failed to connect to SMTP server: %w", err)
 	}
 	return nil
-}
-
-// GetInbox retrieves messages from the user's inbox
-// Note: This is a simplified implementation. In a real-world scenario,
-// you would need to use IMAP to retrieve messages from an inbox.
-// ProtonBridge provides both SMTP (for sending) and IMAP (for receiving) interfaces.
-// This function is a placeholder and would need to be replaced with actual IMAP implementation.
-func (c *Client) GetInbox() ([]Message, error) {
-	return nil, errors.New("GetInbox is not implemented - requires IMAP functionality")
 }
 
 // SendMessage sends an email message
