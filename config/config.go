@@ -12,6 +12,8 @@ type Config struct {
 	AllowedDomains []string
 	Database       DatabaseConfig
 	Api            ApiConfig
+	SMTP           SMTPConfig
+	IMAP           IMAPConfig
 }
 
 // DatabaseConfig holds database configuration values
@@ -22,6 +24,22 @@ type DatabaseConfig struct {
 
 type ApiConfig struct {
 	port string
+}
+
+// SMTPConfig holds SMTP configuration values
+type SMTPConfig struct {
+	Host     string
+	Port     string
+	Username string
+	Password string
+}
+
+// IMAPConfig holds IMAP configuration values
+type IMAPConfig struct {
+	Host     string
+	Port     string
+	Username string
+	Password string
 }
 
 var (
@@ -88,6 +106,28 @@ func LoadConfig() error {
 			case "port":
 				AppConfig.Api.port = value
 			}
+		} else if currentSection == "SMTP" {
+			switch key {
+			case "host":
+				AppConfig.SMTP.Host = value
+			case "port":
+				AppConfig.SMTP.Port = value
+			case "username":
+				AppConfig.SMTP.Username = value
+			case "password":
+				AppConfig.SMTP.Password = value
+			}
+		} else if currentSection == "IMAP" {
+			switch key {
+			case "host":
+				AppConfig.IMAP.Host = value
+			case "port":
+				AppConfig.IMAP.Port = value
+			case "username":
+				AppConfig.IMAP.Username = value
+			case "password":
+				AppConfig.IMAP.Password = value
+			}
 		}
 	}
 
@@ -116,4 +156,14 @@ func GetDatabasePath() string {
 
 func GetAPIPort() string {
 	return AppConfig.Api.port
+}
+
+// GetSMTPConfig returns the SMTP configuration
+func GetSMTPConfig() SMTPConfig {
+	return AppConfig.SMTP
+}
+
+// GetIMAPConfig returns the IMAP configuration
+func GetIMAPConfig() IMAPConfig {
+	return AppConfig.IMAP
 }
