@@ -2,11 +2,12 @@ package email
 
 import (
 	"fmt"
-	"github.com/lyneq/mailapi/config"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v4"
+	"github.com/lyneq/mailapi/config"
+	"github.com/lyneq/mailapi/internal/pagination"
 	"github.com/lyneq/mailapi/internal/smtpClient"
 )
 
@@ -47,9 +48,8 @@ type SendEmailRequest struct {
 	HTMLBody bool     `json:"html_body"`
 }
 
-// getInboxView handles the request to get the user's inbox
+// getInboxView handles the request to get the user's inbox with pagination
 func getInboxView(c echo.Context) error {
-
 	imapClient := smtpclient.NewIMAPClientFromConfig()
 
 	if err := imapClient.Connect(); err != nil {
@@ -59,16 +59,20 @@ func getInboxView(c echo.Context) error {
 	}
 	defer imapClient.Disconnect()
 
+	paginationParams := pagination.GetParamsFromContext(c)
+
 	limitStr := c.QueryParam("limit")
-	limit := 20
-	if limitStr != "" {
+	if limitStr != "" && paginationParams.PageSize == pagination.DefaultPageSize {
 		parsedLimit, err := strconv.Atoi(limitStr)
 		if err == nil && parsedLimit > 0 {
-			limit = parsedLimit
+			paginationParams.PageSize = parsedLimit
+			if paginationParams.PageSize > pagination.MaxPageSize {
+				paginationParams.PageSize = pagination.MaxPageSize
+			}
 		}
 	}
 
-	messages, err := imapClient.GetInbox(limit)
+	result, err := imapClient.GetInbox(paginationParams.Page, paginationParams.PageSize)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": fmt.Sprintf("Failed to get inbox: %v", err),
@@ -76,7 +80,7 @@ func getInboxView(c echo.Context) error {
 	}
 
 	var emails []EmailResponse
-	for _, msg := range messages {
+	for _, msg := range result.Messages {
 		email := EmailResponse{
 			ID:      msg.ID,
 			From:    msg.From,
@@ -96,9 +100,16 @@ func getInboxView(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, Response{Folders: folders, Emails: emails})
+	paginationResponse := pagination.CreateResponse(paginationParams, int(result.TotalCount))
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"folders":    folders,
+		"emails":     emails,
+		"pagination": paginationResponse,
+	})
 }
 
+// getFolderView handles the request to get messages from a specific folder with pagination
 func getFolderView(c echo.Context) error {
 	imapClient := smtpclient.NewIMAPClientFromConfig()
 
@@ -109,12 +120,16 @@ func getFolderView(c echo.Context) error {
 	}
 	defer imapClient.Disconnect()
 
+	paginationParams := pagination.GetParamsFromContext(c)
+
 	limitStr := c.QueryParam("limit")
-	limit := 20
-	if limitStr != "" {
+	if limitStr != "" && paginationParams.PageSize == pagination.DefaultPageSize {
 		parsedLimit, err := strconv.Atoi(limitStr)
 		if err == nil && parsedLimit > 0 {
-			limit = parsedLimit
+			paginationParams.PageSize = parsedLimit
+			if paginationParams.PageSize > pagination.MaxPageSize {
+				paginationParams.PageSize = pagination.MaxPageSize
+			}
 		}
 	}
 
@@ -124,16 +139,16 @@ func getFolderView(c echo.Context) error {
 			"error": "Folder name is required",
 		})
 	}
-	fmt.Println(folderName)
-	messages, err := imapClient.GetFolderMessages(folderName, limit)
+
+	result, err := imapClient.GetFolderMessages(folderName, paginationParams.Page, paginationParams.PageSize)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": fmt.Sprintf("Failed to get inbox: %v", err),
+			"error": fmt.Sprintf("Failed to get folder messages: %v", err),
 		})
 	}
 
-	var response []EmailResponse
-	for _, msg := range messages {
+	var emails []EmailResponse
+	for _, msg := range result.Messages {
 		email := EmailResponse{
 			ID:      msg.ID,
 			From:    msg.From,
@@ -143,10 +158,12 @@ func getFolderView(c echo.Context) error {
 			Labels:  msg.Flags,
 		}
 
-		response = append(response, email)
+		emails = append(emails, email)
 	}
 
-	return c.JSON(http.StatusOK, response)
+	paginationResponse := pagination.CreateResponse(paginationParams, int(result.TotalCount))
+
+	return c.JSON(http.StatusOK, pagination.WrapResponse(emails, paginationResponse))
 }
 
 // getEmailView handles the request to get a specific email by ID
@@ -160,7 +177,6 @@ func getEmailView(c echo.Context) error {
 
 	imapClient := smtpclient.NewIMAPClientFromConfig()
 
-	// Connect to IMAP server
 	if err := imapClient.Connect(); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": fmt.Sprintf("Failed to connect to IMAP server: %v", err),
@@ -177,7 +193,6 @@ func getEmailView(c echo.Context) error {
 		})
 	}
 
-	// Convert to response format
 	response := EmailResponse{
 		ID:      message.ID,
 		From:    message.From,

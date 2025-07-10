@@ -44,7 +44,6 @@ func (c *IMAPClient) Connect() error {
 	var imapClient *client.Client
 	var err error
 
-	// For port 1143, use non-TLS connection with STARTTLS
 	if c.config.Port == 1143 {
 
 		imapClient, err = client.Dial(fmt.Sprintf("%s:%d", c.config.Host, c.config.Port))
@@ -68,8 +67,6 @@ func (c *IMAPClient) Connect() error {
 			return fmt.Errorf("failed to start TLS: %w", err)
 		}
 	} else {
-		// For other ports, use TLS
-		// Load TLS certificate
 		certPool := x509.NewCertPool()
 		cert, err := ioutil.ReadFile("config/tls/cert.pem")
 		if err != nil {
@@ -142,8 +139,14 @@ func (c *IMAPClient) GetFolders() ([]string, error) {
 	return folderNames, nil
 }
 
-// GetInbox retrieves messages from the user's inbox
-func (c *IMAPClient) GetInbox(limit int) ([]Message, error) {
+// GetInboxResult represents the result of GetInbox operation
+type GetInboxResult struct {
+	Messages   []Message
+	TotalCount uint32
+}
+
+// GetInbox retrieves messages from the user's inbox with pagination
+func (c *IMAPClient) GetInbox(page, pageSize int) (*GetInboxResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -156,18 +159,35 @@ func (c *IMAPClient) GetInbox(limit int) ([]Message, error) {
 		return nil, fmt.Errorf("failed to select inbox: %w", err)
 	}
 
-	from := uint32(1)
-	to := mbox.Messages
-	if to > uint32(limit) && to > 0 {
-		from = to - uint32(limit) + 1
+	totalCount := mbox.Messages
+
+	// If there are no messages, return an empty result
+	if totalCount == 0 {
+		return &GetInboxResult{
+			Messages:   []Message{},
+			TotalCount: 0,
+		}, nil
 	}
 
-	if from > to {
-		return []Message{}, nil
+	offset := (page - 1) * pageSize
+
+	if uint32(offset) >= totalCount {
+		return &GetInboxResult{
+			Messages:   []Message{},
+			TotalCount: totalCount,
+		}, nil
+	}
+
+	from := totalCount - uint32(offset)
+	to := from
+	if from > uint32(pageSize) {
+		to = from - uint32(pageSize) + 1
+	} else {
+		to = 1
 	}
 
 	seqSet := new(imap.SeqSet)
-	seqSet.AddRange(from, to)
+	seqSet.AddRange(to, from)
 
 	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags}
 	messages := make(chan *imap.Message, 10)
@@ -181,7 +201,6 @@ func (c *IMAPClient) GetInbox(limit int) ([]Message, error) {
 
 	var result []Message
 	for msg := range messages {
-
 		message := Message{
 			ID:      fmt.Sprintf("%d", msg.SeqNum),
 			Subject: msg.Envelope.Subject,
@@ -189,12 +208,10 @@ func (c *IMAPClient) GetInbox(limit int) ([]Message, error) {
 			Flags:   msg.Flags,
 		}
 
-		// Set From
 		if len(msg.Envelope.From) > 0 {
 			message.From = msg.Envelope.From[0].Address()
 		}
 
-		// Set To
 		for _, addr := range msg.Envelope.To {
 			message.To = append(message.To, addr.Address())
 		}
@@ -206,10 +223,20 @@ func (c *IMAPClient) GetInbox(limit int) ([]Message, error) {
 		return nil, fmt.Errorf("failed to fetch messages: %w", err)
 	}
 
-	return result, nil
+	return &GetInboxResult{
+		Messages:   result,
+		TotalCount: totalCount,
+	}, nil
 }
 
-func (c *IMAPClient) GetFolderMessages(folder string, limit int) ([]Message, error) {
+// GetFolderResult represents the result of GetFolderMessages operation
+type GetFolderResult struct {
+	Messages   []Message
+	TotalCount uint32
+}
+
+// GetFolderMessages retrieves messages from a specific folder with pagination
+func (c *IMAPClient) GetFolderMessages(folder string, page, pageSize int) (*GetFolderResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -222,18 +249,42 @@ func (c *IMAPClient) GetFolderMessages(folder string, limit int) ([]Message, err
 		return nil, fmt.Errorf("failed to select folder: %w", err)
 	}
 
-	from := uint32(1)
-	to := mbox.Messages
-	if to > uint32(limit) && to > 0 {
-		from = to - uint32(limit) + 1
+	totalCount := mbox.Messages
+
+	// If there are no messages, return an empty result
+	if totalCount == 0 {
+		return &GetFolderResult{
+			Messages:   []Message{},
+			TotalCount: 0,
+		}, nil
 	}
 
-	if from > to {
-		return []Message{}, nil
+	// Calculate the range of messages to fetch based on pagination parameters
+	// IMAP uses 1-based indexing, and messages are ordered from oldest to newest
+	// We want to fetch from newest to oldest, so we need to reverse the order
+
+	// Calculate the starting position (from newest)
+	offset := (page - 1) * pageSize
+
+	// Ensure we don't go out of bounds
+	if uint32(offset) >= totalCount {
+		return &GetFolderResult{
+			Messages:   []Message{},
+			TotalCount: totalCount,
+		}, nil
+	}
+
+	// Calculate the range of messages to fetch
+	from := totalCount - uint32(offset)
+	to := from
+	if from > uint32(pageSize) {
+		to = from - uint32(pageSize) + 1
+	} else {
+		to = 1
 	}
 
 	seqSet := new(imap.SeqSet)
-	seqSet.AddRange(from, to)
+	seqSet.AddRange(to, from)
 
 	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags}
 	messages := make(chan *imap.Message, 10)
@@ -247,7 +298,6 @@ func (c *IMAPClient) GetFolderMessages(folder string, limit int) ([]Message, err
 
 	var result []Message
 	for msg := range messages {
-
 		message := Message{
 			ID:      fmt.Sprintf("%d", msg.SeqNum),
 			Subject: msg.Envelope.Subject,
@@ -270,7 +320,10 @@ func (c *IMAPClient) GetFolderMessages(folder string, limit int) ([]Message, err
 		return nil, fmt.Errorf("failed to fetch messages: %w", err)
 	}
 
-	return result, nil
+	return &GetFolderResult{
+		Messages:   result,
+		TotalCount: totalCount,
+	}, nil
 }
 
 // GetEmailByID retrieves a specific email by its ID with full details
