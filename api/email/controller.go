@@ -44,5 +44,12 @@ func GetEmailController() []*Controller {
 			Handler:      sendEmailView,
 			RequiredAuth: true,
 		},
+		{
+			Route:        "/api/email",
+			Method:       http.MethodGet,
+			Active:       true,
+			Handler:      getFoldersView,
+			RequiredAuth: true,
+		},
 	}
 }

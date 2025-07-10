@@ -1,9 +1,11 @@
 package smtpclient
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
-	"io/ioutil" // Using ioutil for simplicity, though it's deprecated in favor of io and os packages in newer Go versions
+	"io/ioutil"
 	"strconv"
 	"sync"
 
@@ -39,13 +41,53 @@ func (c *IMAPClient) Connect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Connect to server without TLS for local development/testing
-	imapClient, err := client.Dial(fmt.Sprintf("%s:%d", c.config.Host, c.config.Port))
-	if err != nil {
-		return fmt.Errorf("failed to connect to IMAP server: %w", err)
+	var imapClient *client.Client
+	var err error
+
+	// For port 1143, use non-TLS connection with STARTTLS
+	if c.config.Port == 1143 {
+
+		imapClient, err = client.Dial(fmt.Sprintf("%s:%d", c.config.Host, c.config.Port))
+		if err != nil {
+			return fmt.Errorf("failed to connect to IMAP server: %w", err)
+		}
+
+		certPool := x509.NewCertPool()
+		cert, err := ioutil.ReadFile("config/tls/cert.pem")
+		if err != nil {
+			return fmt.Errorf("failed to read certificate: %w", err)
+		}
+		certPool.AppendCertsFromPEM(cert)
+
+		tlsConfig := &tls.Config{
+			RootCAs:            certPool,
+			InsecureSkipVerify: false,
+		}
+
+		if err := imapClient.StartTLS(tlsConfig); err != nil {
+			return fmt.Errorf("failed to start TLS: %w", err)
+		}
+	} else {
+		// For other ports, use TLS
+		// Load TLS certificate
+		certPool := x509.NewCertPool()
+		cert, err := ioutil.ReadFile("config/tls/cert.pem")
+		if err != nil {
+			return fmt.Errorf("failed to read certificate: %w", err)
+		}
+		certPool.AppendCertsFromPEM(cert)
+
+		tlsConfig := &tls.Config{
+			RootCAs:            certPool,
+			InsecureSkipVerify: false,
+		}
+
+		imapClient, err = client.DialTLS(fmt.Sprintf("%s:%d", c.config.Host, c.config.Port), tlsConfig)
+		if err != nil {
+			return fmt.Errorf("failed to connect to IMAP server: %w", err)
+		}
 	}
 
-	// Login
 	if err := imapClient.Login(c.config.Username, c.config.Password); err != nil {
 		imapClient.Logout()
 		return fmt.Errorf("failed to login to IMAP server: %w", err)
@@ -81,12 +123,9 @@ func (c *IMAPClient) GetFolders() ([]string, error) {
 		return nil, fmt.Errorf("not connected to IMAP server")
 	}
 
-	// Canal pour récupérer les résultats
 	mailboxes := make(chan *imap.MailboxInfo, 50)
 	done := make(chan error, 1)
 
-	// Lance la requête IMAP pour lister les boîtes.
-	// Ex: "" pour le "reference", "*" pour le "mailbox pattern"
 	go func() {
 		done <- c.client.List("", "*", mailboxes)
 	}()
@@ -112,13 +151,11 @@ func (c *IMAPClient) GetInbox(limit int) ([]Message, error) {
 		return nil, fmt.Errorf("not connected to IMAP server")
 	}
 
-	// Select INBOX
 	mbox, err := c.client.Select("INBOX", false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select inbox: %w", err)
 	}
 
-	// Get the last 'limit' messages
 	from := uint32(1)
 	to := mbox.Messages
 	if to > uint32(limit) && to > 0 {
@@ -132,7 +169,6 @@ func (c *IMAPClient) GetInbox(limit int) ([]Message, error) {
 	seqSet := new(imap.SeqSet)
 	seqSet.AddRange(from, to)
 
-	// Get message envelope and flags
 	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags}
 	messages := make(chan *imap.Message, 10)
 	done := make(chan error, 1)
@@ -141,8 +177,11 @@ func (c *IMAPClient) GetInbox(limit int) ([]Message, error) {
 		done <- c.client.Fetch(seqSet, items, messages)
 	}()
 
+	fmt.Println("Fetching inbox messages")
+
 	var result []Message
 	for msg := range messages {
+
 		message := Message{
 			ID:      fmt.Sprintf("%d", msg.SeqNum),
 			Subject: msg.Envelope.Subject,
@@ -178,13 +217,11 @@ func (c *IMAPClient) GetFolderMessages(folder string, limit int) ([]Message, err
 		return nil, fmt.Errorf("not connected to IMAP server")
 	}
 
-	// Select INBOX
 	mbox, err := c.client.Select(folder, false)
 	if err != nil {
-		return nil, fmt.Errorf("failed to select inbox: %w", err)
+		return nil, fmt.Errorf("failed to select folder: %w", err)
 	}
 
-	// Get the last 'limit' messages
 	from := uint32(1)
 	to := mbox.Messages
 	if to > uint32(limit) && to > 0 {
@@ -198,7 +235,6 @@ func (c *IMAPClient) GetFolderMessages(folder string, limit int) ([]Message, err
 	seqSet := new(imap.SeqSet)
 	seqSet.AddRange(from, to)
 
-	// Get message envelope and flags
 	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags}
 	messages := make(chan *imap.Message, 10)
 	done := make(chan error, 1)
@@ -207,8 +243,11 @@ func (c *IMAPClient) GetFolderMessages(folder string, limit int) ([]Message, err
 		done <- c.client.Fetch(seqSet, items, messages)
 	}()
 
+	fmt.Println("Fetching messages from folder:", folder)
+
 	var result []Message
 	for msg := range messages {
+
 		message := Message{
 			ID:      fmt.Sprintf("%d", msg.SeqNum),
 			Subject: msg.Envelope.Subject,
@@ -216,12 +255,10 @@ func (c *IMAPClient) GetFolderMessages(folder string, limit int) ([]Message, err
 			Flags:   msg.Flags,
 		}
 
-		// Set From
 		if len(msg.Envelope.From) > 0 {
 			message.From = msg.Envelope.From[0].Address()
 		}
 
-		// Set To
 		for _, addr := range msg.Envelope.To {
 			message.To = append(message.To, addr.Address())
 		}
@@ -237,7 +274,7 @@ func (c *IMAPClient) GetFolderMessages(folder string, limit int) ([]Message, err
 }
 
 // GetEmailByID retrieves a specific email by its ID with full details
-func (c *IMAPClient) GetEmailByID(id string) (*Message, error) {
+func (c *IMAPClient) GetEmailByID(id string, folder string) (*Message, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -245,23 +282,24 @@ func (c *IMAPClient) GetEmailByID(id string) (*Message, error) {
 		return nil, fmt.Errorf("not connected to IMAP server")
 	}
 
-	// Convert ID to sequence number
 	seqNum, err := strconv.ParseUint(id, 10, 32)
 	if err != nil {
 		return nil, fmt.Errorf("invalid email ID: %w", err)
 	}
 
-	// Select INBOX
-	_, err = c.client.Select("INBOX", false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to select inbox: %w", err)
+	if folder == "" {
+		folder = "INBOX"
 	}
 
-	// Create sequence set for this specific message
+	fmt.Println("Selecting folder for email ID", id, ":", folder)
+	_, err = c.client.Select(folder, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to select folder %s: %w", folder, err)
+	}
+
 	seqSet := new(imap.SeqSet)
 	seqSet.AddNum(uint32(seqNum))
 
-	// Get message envelope, flags, and body structure
 	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags, imap.FetchBodyStructure, "BODY[]"}
 	messages := make(chan *imap.Message, 1)
 	done := make(chan error, 1)
@@ -272,32 +310,27 @@ func (c *IMAPClient) GetEmailByID(id string) (*Message, error) {
 
 	var message *Message
 	for msg := range messages {
-		// Create basic message with envelope data
 		message = &Message{
 			ID:      fmt.Sprintf("%d", msg.SeqNum),
 			Subject: msg.Envelope.Subject,
 			Date:    msg.Envelope.Date,
+			Flags:   msg.Flags,
 		}
 
-		// Set From
 		if len(msg.Envelope.From) > 0 {
 			message.From = msg.Envelope.From[0].Address()
 		}
 
-		// Set To
 		for _, addr := range msg.Envelope.To {
 			message.To = append(message.To, addr.Address())
 		}
 
-		// Get the body
 		for _, literal := range msg.Body {
-			// Parse the message
 			mr, err := mail.CreateReader(literal)
 			if err != nil {
 				continue
 			}
 
-			// Process each part
 			for {
 				p, err := mr.NextPart()
 				if err == io.EOF {
@@ -309,11 +342,9 @@ func (c *IMAPClient) GetEmailByID(id string) (*Message, error) {
 
 				switch h := p.Header.(type) {
 				case *mail.InlineHeader:
-					// This is the message body
 					b, _ := ioutil.ReadAll(p.Body)
 					message.Body = string(b)
 				case *mail.AttachmentHeader:
-					// This is an attachment
 					filename, _ := h.Filename()
 					b, _ := ioutil.ReadAll(p.Body)
 					contentType, _, _ := h.ContentType()

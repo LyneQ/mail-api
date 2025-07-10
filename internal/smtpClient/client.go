@@ -2,8 +2,10 @@ package smtpclient
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"sync"
 	"time"
 
@@ -48,8 +50,35 @@ type Attachment struct {
 func NewClient(config SMTPConfig) *Client {
 	dialer := gomail.NewDialer(config.Host, config.Port, config.Username, config.Password)
 
-	// Skip TLS verification for local development/testing
-	dialer.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+	if config.Port == 1025 {
+		dialer.SSL = false
+
+		certPool := x509.NewCertPool()
+		cert, err := ioutil.ReadFile("config/tls/cert.pem")
+		if err != nil {
+			fmt.Printf("Failed to read certificate: %v\n", err)
+			dialer.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+		} else {
+			certPool.AppendCertsFromPEM(cert)
+			dialer.TLSConfig = &tls.Config{
+				RootCAs:            certPool,
+				InsecureSkipVerify: false,
+			}
+		}
+	} else {
+		certPool := x509.NewCertPool()
+		cert, err := ioutil.ReadFile("config/tls/cert.pem")
+		if err != nil {
+			fmt.Printf("Failed to read certificate: %v\n", err)
+			dialer.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+		} else {
+			certPool.AppendCertsFromPEM(cert)
+			dialer.TLSConfig = &tls.Config{
+				RootCAs:            certPool,
+				InsecureSkipVerify: false,
+			}
+		}
+	}
 
 	return &Client{
 		config: config,

@@ -2,16 +2,15 @@ package api
 
 import (
 	"fmt"
-	"github.com/lyneq/mailapi/config"
-	"github.com/lyneq/mailapi/internal/middleware"
-	"github.com/lyneq/mailapi/internal/session"
-	"net/http"
-
 	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v4"
 	echomiddleware "github.com/labstack/echo/v4/middleware"
 	"github.com/lyneq/mailapi/api/auth"
 	"github.com/lyneq/mailapi/api/email"
+	"github.com/lyneq/mailapi/config"
+	"github.com/lyneq/mailapi/internal/middleware"
+	"github.com/lyneq/mailapi/internal/session"
+	"net/http"
 )
 
 type CustomValidator struct {
@@ -25,21 +24,20 @@ func (cv *CustomValidator) Validate(i interface{}) error {
 func Init() {
 
 	allowedDomains := config.GetAllowedDomains()
-	apiPort := config.GetAPIPort()
 	e := echo.New()
 
 	var allowedHosts []string
 
 	for _, domain := range allowedDomains {
-		allowedHosts = append(allowedHosts, "https://"+domain+":"+apiPort)
-		allowedHosts = append(allowedHosts, "http://"+domain+":"+apiPort)
+		allowedHosts = append(allowedHosts, "https://"+domain)
+		allowedHosts = append(allowedHosts, "http://"+domain)
 	}
 
 	e.Use(echomiddleware.CORSWithConfig(echomiddleware.CORSConfig{
 		AllowOrigins:     allowedHosts,
 		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
 		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderSetCookie, echo.HeaderCookie, "X-Requested-With", "X-CSRF-Token"},
-		ExposeHeaders:    []string{echo.HeaderSetCookie, "Set-Cookie"},
+		ExposeHeaders:    []string{echo.HeaderSetCookie, "Set-Cookie", "X-SvelteKit-Action"},
 		AllowCredentials: true,
 		MaxAge:           86400,
 	}))
@@ -54,7 +52,29 @@ func Init() {
 
 	registerRoutes(e)
 
-	e.Logger.Fatal(e.Start(":1323"))
+	// Create a separate Echo instance for HTTP
+	eHTTP := echo.New()
+
+	// Add a custom middleware to redirect HTTP to HTTPS
+	eHTTP.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			req := c.Request()
+			// Use a fixed HTTPS URL for redirection
+			url := "https://localhost:1323" + req.URL.Path
+			if req.URL.RawQuery != "" {
+				url += "?" + req.URL.RawQuery
+			}
+			return c.Redirect(http.StatusMovedPermanently, url)
+		}
+	})
+
+	// Start HTTP server in a separate goroutine
+	go func() {
+		eHTTP.Logger.Fatal(eHTTP.Start(":8080"))
+	}()
+
+	// Start the main server with TLS
+	e.Logger.Fatal(e.StartTLS(":1323", "config/tls/cert.pem", "config/tls/key.pem"))
 
 }
 
@@ -63,7 +83,6 @@ func registerRoutes(e *echo.Echo) {
 	var routes []*auth.Controller
 	routes = auth.GetAuthController()
 
-	// Register email routes
 	emailRoutes := email.GetEmailController()
 	for _, route := range emailRoutes {
 		if route.Active {
