@@ -35,6 +35,7 @@ type Message struct {
 	Date        time.Time
 	Attachments []Attachment
 	Flags       []string
+	Size        uint32 // Size of the message in bytes
 }
 
 // Attachment represents an email attachment
@@ -51,14 +52,13 @@ func NewClient(config SMTPConfig) *Client {
 	if config.Port == 1025 {
 		dialer.SSL = false
 
-		// Use system's certificate pool for proton-bridge certificates
 		dialer.TLSConfig = &tls.Config{
-			InsecureSkipVerify: true, // Trust proton-bridge's self-signed certificate
+			InsecureSkipVerify: true,
 		}
 	} else {
 		// Use system's certificate pool for proton-bridge certificates
 		dialer.TLSConfig = &tls.Config{
-			InsecureSkipVerify: true, // Trust proton-bridge's self-signed certificate
+			InsecureSkipVerify: true,
 		}
 	}
 

@@ -50,18 +50,16 @@ func (c *IMAPClient) Connect() error {
 			return fmt.Errorf("failed to connect to IMAP server: %w", err)
 		}
 
-		// Use system's certificate pool for proton-bridge certificates
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: true, // Trust proton-bridge's self-signed certificate
+			InsecureSkipVerify: true,
 		}
 
 		if err := imapClient.StartTLS(tlsConfig); err != nil {
 			return fmt.Errorf("failed to start TLS: %w", err)
 		}
 	} else {
-		// Use system's certificate pool for proton-bridge certificates
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: true, // Trust proton-bridge's self-signed certificate
+			InsecureSkipVerify: true,
 		}
 
 		imapClient, err = client.DialTLS(fmt.Sprintf("%s:%d", c.config.Host, c.config.Port), tlsConfig)
@@ -146,7 +144,6 @@ func (c *IMAPClient) GetInbox(page, pageSize int) (*GetInboxResult, error) {
 
 	totalCount := mbox.Messages
 
-	// If there are no messages, return an empty result
 	if totalCount == 0 {
 		return &GetInboxResult{
 			Messages:   []Message{},
@@ -236,7 +233,6 @@ func (c *IMAPClient) GetFolderMessages(folder string, page, pageSize int) (*GetF
 
 	totalCount := mbox.Messages
 
-	// If there are no messages, return an empty result
 	if totalCount == 0 {
 		return &GetFolderResult{
 			Messages:   []Message{},
@@ -248,10 +244,8 @@ func (c *IMAPClient) GetFolderMessages(folder string, page, pageSize int) (*GetF
 	// IMAP uses 1-based indexing, and messages are ordered from oldest to newest
 	// We want to fetch from newest to oldest, so we need to reverse the order
 
-	// Calculate the starting position (from newest)
 	offset := (page - 1) * pageSize
 
-	// Ensure we don't go out of bounds
 	if uint32(offset) >= totalCount {
 		return &GetFolderResult{
 			Messages:   []Message{},
@@ -259,7 +253,6 @@ func (c *IMAPClient) GetFolderMessages(folder string, page, pageSize int) (*GetF
 		}, nil
 	}
 
-	// Calculate the range of messages to fetch
 	from := totalCount - uint32(offset)
 	to := from
 	if from > uint32(pageSize) {
@@ -338,7 +331,7 @@ func (c *IMAPClient) GetEmailByID(id string, folder string) (*Message, error) {
 	seqSet := new(imap.SeqSet)
 	seqSet.AddNum(uint32(seqNum))
 
-	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags, imap.FetchBodyStructure, "BODY[]"}
+	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags, imap.FetchBodyStructure, imap.FetchRFC822Size, "BODY[]"}
 	messages := make(chan *imap.Message, 1)
 	done := make(chan error, 1)
 
@@ -353,6 +346,7 @@ func (c *IMAPClient) GetEmailByID(id string, folder string) (*Message, error) {
 			Subject: msg.Envelope.Subject,
 			Date:    msg.Envelope.Date,
 			Flags:   msg.Flags,
+			Size:    msg.Size,
 		}
 
 		if len(msg.Envelope.From) > 0 {

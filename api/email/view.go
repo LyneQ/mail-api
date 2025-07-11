@@ -3,12 +3,15 @@ package email
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/lyneq/mailapi/config"
 	"github.com/lyneq/mailapi/internal/pagination"
 	"github.com/lyneq/mailapi/internal/smtpClient"
+	"github.com/lyneq/mailapi/internal/utils"
 )
 
 // EmailResponse represents the response structure for email data
@@ -28,6 +31,7 @@ type Attachment struct {
 	Filename string `json:"filename"`
 	MimeType string `json:"mime_type"`
 	Size     int    `json:"size"`
+	HTML     string `json:"html,omitempty"`
 }
 
 type FolderResponse struct {
@@ -199,17 +203,56 @@ func getEmailView(c echo.Context) error {
 		To:      message.To,
 		Subject: message.Subject,
 		Date:    message.Date.Format("2006-01-02 15:04:05"),
-		Body:    message.Body,
 		Labels:  message.Flags,
 	}
 
+	charLimit := 10000
+
+	if message.Size > 0 {
+
+		if message.Size > 1000000 {
+			charLimit = 5000
+		} else if message.Size > 500000 {
+			charLimit = 7500
+		} else {
+
+			charLimit = 15000
+		}
+	}
+
+	bodyToClean := message.Body
+	if len(bodyToClean) > charLimit {
+		bodyToClean = bodyToClean[:charLimit]
+	}
+	emailBody := CleanBinaryData(bodyToClean)
+
 	for _, att := range message.Attachments {
-		response.Attachments = append(response.Attachments, Attachment{
+		attachmentLimit := 1000
+
+		// Use both the message size and attachment size to determine the character limit
+		// This helps optimize the cleaning process for large messages with large attachments
+		if message.Size > 1000000 { // If message is larger than 1MB
+			// For very large messages, be more aggressive with attachment limits
+			attachmentLimit = 500
+		} else if len(att.Content) > 100000 {
+			attachmentLimit = 750
+		} else if message.Size > 500000 {
+			attachmentLimit = 800
+		}
+
+		attachment := Attachment{
 			Filename: att.Filename,
 			MimeType: att.MimeType,
-			Size:     len(att.Content),
-		})
+			Size:     attachmentLimit,
+			HTML:     utils.AttachmentToHTML(att, attachmentLimit),
+		}
+
+		response.Attachments = append(response.Attachments, attachment)
+
+		emailBody += "\n\n" + attachment.HTML
 	}
+
+	response.Body = emailBody
 
 	return c.JSON(http.StatusOK, response)
 }
@@ -235,6 +278,44 @@ func getFoldersView(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"folders": folders,
 	})
+}
+
+// CleanBinaryData removes binary data and non-printable characters from the email body
+// This function uses a whitelist approach to keep only valid text characters
+func CleanBinaryData(body string) string {
+	reBase64Tags := regexp.MustCompile(`(?s)<(img|embed|object)[^>]*base64[^>]*>`)
+	body = reBase64Tags.ReplaceAllString(body, "")
+
+	rePureBase64 := regexp.MustCompile(`data:[^;]+;base64,[a-zA-Z0-9+/=]+`)
+	body = rePureBase64.ReplaceAllString(body, "")
+
+	reBinaryGarbage := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\xAD�]+`)
+
+	body = reBinaryGarbage.ReplaceAllString(body, "")
+
+	var b strings.Builder
+	for _, r := range body {
+		switch {
+		case r >= 32 && r <= 126: // ASCII printable
+			b.WriteRune(r)
+		case r == '\n' || r == '\r' || r == '\t':
+			b.WriteRune(r)
+		case r >= 0x00A0 && r <= 0x00FF: // Latin-1 Supplement
+			b.WriteRune(r)
+		case r >= 0x0100 && r <= 0x017F: // Latin Extended-A
+			b.WriteRune(r)
+		default:
+			// On skip tout ce qui est trop chelou
+			continue
+		}
+	}
+
+	clean := b.String()
+
+	reCollapse := regexp.MustCompile(`[\s]{2,}`)
+	clean = reCollapse.ReplaceAllString(clean, " ")
+
+	return strings.TrimSpace(clean)
 }
 
 // sendEmailView handles the request to send an email
