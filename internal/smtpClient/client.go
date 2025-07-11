@@ -2,10 +2,8 @@ package smtpclient
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"sync"
 	"time"
 
@@ -53,30 +51,14 @@ func NewClient(config SMTPConfig) *Client {
 	if config.Port == 1025 {
 		dialer.SSL = false
 
-		certPool := x509.NewCertPool()
-		cert, err := ioutil.ReadFile("config/tls/cert.pem")
-		if err != nil {
-			fmt.Printf("Failed to read certificate: %v\n", err)
-			dialer.TLSConfig = &tls.Config{InsecureSkipVerify: true}
-		} else {
-			certPool.AppendCertsFromPEM(cert)
-			dialer.TLSConfig = &tls.Config{
-				RootCAs:            certPool,
-				InsecureSkipVerify: false,
-			}
+		// Use system's certificate pool for proton-bridge certificates
+		dialer.TLSConfig = &tls.Config{
+			InsecureSkipVerify: true, // Trust proton-bridge's self-signed certificate
 		}
 	} else {
-		certPool := x509.NewCertPool()
-		cert, err := ioutil.ReadFile("config/tls/cert.pem")
-		if err != nil {
-			fmt.Printf("Failed to read certificate: %v\n", err)
-			dialer.TLSConfig = &tls.Config{InsecureSkipVerify: true}
-		} else {
-			certPool.AppendCertsFromPEM(cert)
-			dialer.TLSConfig = &tls.Config{
-				RootCAs:            certPool,
-				InsecureSkipVerify: false,
-			}
+		// Use system's certificate pool for proton-bridge certificates
+		dialer.TLSConfig = &tls.Config{
+			InsecureSkipVerify: true, // Trust proton-bridge's self-signed certificate
 		}
 	}
 

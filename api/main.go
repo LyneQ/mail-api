@@ -29,7 +29,6 @@ func Init() {
 	var allowedHosts []string
 
 	for _, domain := range allowedDomains {
-		allowedHosts = append(allowedHosts, "https://"+domain)
 		allowedHosts = append(allowedHosts, "http://"+domain)
 	}
 
@@ -52,29 +51,12 @@ func Init() {
 
 	registerRoutes(e)
 
-	// Create a separate Echo instance for HTTP
-	eHTTP := echo.New()
-
-	// Add a custom middleware to redirect HTTP to HTTPS
-	eHTTP.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			req := c.Request()
-			// Use a fixed HTTPS URL for redirection
-			url := "https://localhost:1323" + req.URL.Path
-			if req.URL.RawQuery != "" {
-				url += "?" + req.URL.RawQuery
-			}
-			return c.Redirect(http.StatusMovedPermanently, url)
-		}
-	})
-
-	// Start HTTP server in a separate goroutine
-	go func() {
-		eHTTP.Logger.Fatal(eHTTP.Start(":8080"))
-	}()
-
-	// Start the main server with TLS
-	e.Logger.Fatal(e.StartTLS(":1323", "config/tls/cert.pem", "config/tls/key.pem"))
+	// Start the main server on HTTP only
+	port := config.GetAPIPort()
+	if port == "" {
+		port = "1323"
+	}
+	e.Logger.Fatal(e.Start(":" + port))
 
 }
 

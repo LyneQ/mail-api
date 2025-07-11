@@ -102,8 +102,7 @@ The Authentication component includes several security features:
 
 1. **Password Hashing**: Passwords should be hashed before storage (not stored in plain text)
 2. **Session Expiration**: Sessions have a limited lifetime
-3. **HTTPS Only Cookies**: Session cookies should be sent only over HTTPS
-4. **CSRF Protection**: The API includes CSRF protection for session cookies
+3. **CSRF Protection**: The API includes CSRF protection for session cookies
 
 ## Configuration
 
@@ -113,7 +112,7 @@ The Authentication component doesn't have specific configuration options in the 
 session.Init(db.DB, false)
 ```
 
-The second parameter (`false`) indicates whether to use secure cookies (HTTPS only). In production, this should be set to `true`.
+The second parameter (`false`) indicates whether to use secure cookies. Since the API now runs on HTTP only, this parameter should remain `false`.
 
 ## Limitations
 

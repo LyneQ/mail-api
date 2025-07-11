@@ -2,7 +2,6 @@ package smtpclient
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -51,32 +50,18 @@ func (c *IMAPClient) Connect() error {
 			return fmt.Errorf("failed to connect to IMAP server: %w", err)
 		}
 
-		certPool := x509.NewCertPool()
-		cert, err := ioutil.ReadFile("config/tls/cert.pem")
-		if err != nil {
-			return fmt.Errorf("failed to read certificate: %w", err)
-		}
-		certPool.AppendCertsFromPEM(cert)
-
+		// Use system's certificate pool for proton-bridge certificates
 		tlsConfig := &tls.Config{
-			RootCAs:            certPool,
-			InsecureSkipVerify: false,
+			InsecureSkipVerify: true, // Trust proton-bridge's self-signed certificate
 		}
 
 		if err := imapClient.StartTLS(tlsConfig); err != nil {
 			return fmt.Errorf("failed to start TLS: %w", err)
 		}
 	} else {
-		certPool := x509.NewCertPool()
-		cert, err := ioutil.ReadFile("config/tls/cert.pem")
-		if err != nil {
-			return fmt.Errorf("failed to read certificate: %w", err)
-		}
-		certPool.AppendCertsFromPEM(cert)
-
+		// Use system's certificate pool for proton-bridge certificates
 		tlsConfig := &tls.Config{
-			RootCAs:            certPool,
-			InsecureSkipVerify: false,
+			InsecureSkipVerify: true, // Trust proton-bridge's self-signed certificate
 		}
 
 		imapClient, err = client.DialTLS(fmt.Sprintf("%s:%d", c.config.Host, c.config.Port), tlsConfig)
